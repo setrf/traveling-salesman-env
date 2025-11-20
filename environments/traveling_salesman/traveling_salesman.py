@@ -1,0 +1,248 @@
+import itertools
+import math
+import random
+import re
+from dataclasses import dataclass
+from typing import Any, Dict, List, Sequence, Tuple
+
+from datasets import Dataset
+from verifiers import Environment, Parser, Rubric
+from verifiers.types import ChatMessage, RolloutInput, SamplingArgs, State
+
+
+@dataclass
+class TSPInstance:
+    coords: List[Tuple[float, float]]
+    distance_matrix: List[List[float]]
+    optimal_route: List[int]
+    optimal_distance: float
+    start_city: int = 0
+
+
+def build_distance_matrix(coords: Sequence[Tuple[float, float]]) -> List[List[float]]:
+    matrix: List[List[float]] = []
+    for i, (x1, y1) in enumerate(coords):
+        row: List[float] = []
+        for j, (x2, y2) in enumerate(coords):
+            if i == j:
+                row.append(0.0)
+            else:
+                row.append(math.dist((x1, y1), (x2, y2)))
+        matrix.append(row)
+    return matrix
+
+
+def brute_force_optimal(distance_matrix: Sequence[Sequence[float]], start: int = 0) -> Tuple[List[int], float]:
+    n = len(distance_matrix)
+    cities = [i for i in range(n) if i != start]
+    best_route: List[int] = [start]
+    best_distance = math.inf
+    for perm in itertools.permutations(cities):
+        route = [start, *perm, start]
+        dist = route_distance(distance_matrix, route)
+        if dist < best_distance:
+            best_distance = dist
+            best_route = list(route)
+    return best_route, best_distance
+
+
+def route_distance(distance_matrix: Sequence[Sequence[float]], route: Sequence[int]) -> float:
+    return sum(distance_matrix[a][b] for a, b in zip(route, route[1:]))
+
+
+def generate_tsp_instance(
+    num_cities: int,
+    rng: random.Random,
+    start_city: int = 0,
+) -> TSPInstance:
+    # Sample coordinates in a unit square
+    coords = [(rng.random(), rng.random()) for _ in range(num_cities)]
+    distance_matrix = build_distance_matrix(coords)
+    optimal_route, optimal_distance = brute_force_optimal(distance_matrix, start=start_city)
+    return TSPInstance(
+        coords=coords,
+        distance_matrix=distance_matrix,
+        optimal_route=optimal_route,
+        optimal_distance=optimal_distance,
+        start_city=start_city,
+    )
+
+
+def format_question(instance: TSPInstance) -> str:
+    coord_lines = [f"{idx}: ({x:.3f}, {y:.3f})" for idx, (x, y) in enumerate(instance.coords)]
+    coord_block = "\n".join(coord_lines)
+    return (
+        "You are solving a Traveling Salesman Problem (TSP).\n"
+        f"Start and end at city {instance.start_city}. Visit every city exactly once.\n"
+        "Cities and coordinates:\n"
+        f"{coord_block}\n\n"
+        "Return the route as space-separated city indices, starting and ending at the start city.\n"
+        "Example format: 0 2 3 1 0\n"
+        "Only answer with the route."
+    )
+
+
+def parse_route_from_text(text: str, num_cities: int, start_city: int) -> Tuple[List[int], Dict[str, Any]]:
+    """Extract a route from a model completion."""
+    numbers = [int(x) for x in re.findall(r"-?[0-9]+", text)]
+    details: Dict[str, Any] = {"raw_numbers": numbers}
+
+    if not numbers:
+        details.update({"feasible": False, "reason": "no_numbers"})
+        return [], details
+
+    route = numbers
+    # ensure start/end at start_city
+    if route[0] != start_city:
+        route = [start_city] + route
+    if route[-1] != start_city:
+        route = route + [start_city]
+
+    # remove consecutive duplicates
+    dedup_route = [route[0]]
+    for node in route[1:]:
+        if node != dedup_route[-1]:
+            dedup_route.append(node)
+    route = dedup_route
+
+    inner = route[1:-1]
+    unique_inner = set(inner)
+    if len(route) != num_cities + 1 or len(unique_inner) != num_cities - 1:
+        details.update({"feasible": False, "reason": "invalid_coverage", "route": route})
+        return route, details
+
+    if any(node < 0 or node >= num_cities for node in inner):
+        details.update({"feasible": False, "reason": "out_of_range", "route": route})
+        return route, details
+
+    details.update({"feasible": True, "route": route})
+    return route, details
+
+
+class TravelingSalesmanEnv(Environment):
+    def __init__(self, env_id: str = "traveling-salesman", env_args: Dict[str, Any] | None = None):
+        self.env_args = env_args or {}
+        cfg = {
+            "train_examples": int(self.env_args.get("train_examples", 48)),
+            "eval_examples": int(self.env_args.get("eval_examples", 16)),
+            "min_cities": int(self.env_args.get("min_cities", 4)),
+            "max_cities": int(self.env_args.get("max_cities", 7)),
+            "seed": int(self.env_args.get("seed", 13)),
+        }
+        rng = random.Random(cfg["seed"])
+
+        train_rows = [self._make_row(rng, cfg) for _ in range(cfg["train_examples"])]
+        eval_rows = [self._make_row(rng, cfg) for _ in range(cfg["eval_examples"])]
+
+        system_prompt = (
+            "You are a routing expert that outputs only valid TSP tours as space-separated city indices.\n"
+            "Do not include explanations or units."
+        )
+        parser = Parser()
+        rubric = Rubric(funcs=[self.score_route], parser=parser)
+
+        super().__init__(
+            dataset=Dataset.from_list(train_rows),
+            eval_dataset=Dataset.from_list(eval_rows),
+            system_prompt=system_prompt,
+            parser=parser,
+            rubric=rubric,
+            env_id=env_id,
+            env_args=self.env_args,
+            message_type="chat",
+        )
+
+    def _make_row(self, rng: random.Random, cfg: Dict[str, int]) -> Dict[str, Any]:
+        num_cities = rng.randint(cfg["min_cities"], cfg["max_cities"])
+        instance = generate_tsp_instance(num_cities=num_cities, rng=rng)
+        question = format_question(instance)
+        answer = " ".join(str(x) for x in instance.optimal_route)
+        return {
+            "question": question,
+            "answer": answer,
+            "info": {
+                "distance_matrix": instance.distance_matrix,
+                "optimal_distance": instance.optimal_distance,
+                "optimal_route": instance.optimal_route,
+                "num_cities": num_cities,
+                "start_city": instance.start_city,
+            },
+        }
+
+    async def setup_state(self, state: State) -> State:
+        return state
+
+    async def rollout(
+        self,
+        input: RolloutInput,
+        client,
+        model: str,
+        sampling_args: SamplingArgs | None = None,
+    ) -> State:
+        state = await self.init_state(input, client, model, sampling_args)
+        prompt = state["prompt"]
+        response = await self.get_model_response(
+            client=client,
+            model=model,
+            prompt=prompt,
+            oai_tools=None,
+            sampling_args=sampling_args,
+            message_type=self.message_type,
+        )
+
+        completion_text: str
+        if self.message_type == "chat":
+            completion_text = response.choices[0].message.content or ""
+            assistant_msg: ChatMessage = {"role": "assistant", "content": completion_text}
+            state["trajectory"].append(
+                {"prompt": prompt, "completion": [assistant_msg], "reward": None, "advantage": None}
+            )
+        else:
+            completion_text = response.choices[0].text or ""
+            state["trajectory"].append(
+                {"prompt": prompt, "completion": completion_text, "reward": None, "advantage": None}
+            )
+
+        state["completion"] = completion_text
+        state["answer"] = input.get("answer", "")
+        state["info"] = input.get("info", {})
+        state["stop_condition"] = None
+        return state
+
+    async def score_route(self, completion: str, state: State, **_) -> float:
+        info = state.get("info", {})
+        num_cities = int(info.get("num_cities", 0))
+        start_city = int(info.get("start_city", 0))
+        distance_matrix = info.get("distance_matrix", [])
+        optimal_distance = float(info.get("optimal_distance", 1e-9))
+
+        route, details = parse_route_from_text(completion, num_cities, start_city)
+        feasible = details.get("feasible", False)
+        if not feasible or not distance_matrix or len(route) < 2:
+            state["metrics"] = {"tsp_reward": -1.0, "feasible": 0.0}
+            state["reward"] = -1.0
+            return -1.0
+
+        length = route_distance(distance_matrix, route)
+        # reward: normalized inverse length (1.0 = optimal, approaches 0 as it gets worse)
+        reward = max(0.0, min(1.0, optimal_distance / length))
+        gap = length - optimal_distance
+
+        state["reward"] = reward
+        state["metrics"] = {
+            "tsp_reward": reward,
+            "tour_length": length,
+            "optimal_length": optimal_distance,
+            "gap": gap,
+            "feasible": 1.0,
+        }
+        state["info"]["parsed_route"] = route
+        state["info"]["route_details"] = details
+        return reward
+
+
+def load_environment(**kwargs) -> Environment:
+    """
+    Entrypoint for verifiers to load the environment.
+    """
+    return TravelingSalesmanEnv(env_args=kwargs)
