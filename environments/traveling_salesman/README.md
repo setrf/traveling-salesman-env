@@ -64,3 +64,6 @@ uv run vf-eval traveling-salesman \
 - Invalid or malformed routes get `tsp_reward = -1.0`.
 - Feasible but suboptimal routes get a fractional reward: `optimal_distance / tour_distance` (clipped to [0,1]).
 - Optimal route yields `tsp_reward = 1.0`.
+
+### Outputs directory
+An `outputs/` directory is packaged with the environment (contains a README and .gitkeep) to support automated evaluators that expect a writable outputs path during integration tests. You can also drop rollout artifacts there if needed.
