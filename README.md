@@ -47,7 +47,7 @@ From `environments/traveling_salesman/`:
 ```bash
 prime env push --visibility PUBLIC
 ```
-  - Uses `pyproject.toml` name/version (currently 0.1.5).
+- Uses `pyproject.toml` name/version (currently 0.1.5).
 - Add `--team <team-slug>` if you want team ownership.
 
 After push:
