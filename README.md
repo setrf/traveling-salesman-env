@@ -6,7 +6,7 @@ Turnkey verifiers/Prime-RL environment for the Traveling Salesman Problem (TSP).
 - `environments/traveling_salesman/pyproject.toml` — environment metadata (name, version, tags, deps)
 - `environments/traveling_salesman/traveling_salesman.py` — environment implementation (dataset synth, prompt, rollout, scoring)
 - `environments/traveling_salesman/README.md` — environment-level docs (args, metrics, quickstart)
-- `.gitignore` — Python/build ignores
+- `.gitignore` — Python/build ignores (we avoid committing eval outputs)
 
 ## Local setup
 ```bash
@@ -41,6 +41,11 @@ uv run vf-eval traveling-salesman \
   -n 20 -r 3 \
   -a '{"train_examples":64,"eval_examples":32,"min_cities":4,"max_cities":7,"seed":42}'
 ```
+
+Strict output contract:
+- System prompt enforces: single line of space-separated city indices, start/end at 0, no extra text.
+- Rollout defaults: `response_format={"type": "text"}`, `temperature=0`, `max_tokens=128`.
+- Parser extracts the first numeric line; invalid/empty outputs score -1.
 
 ## Publish to Prime Intellect Environments Hub
 From `environments/traveling_salesman/`:

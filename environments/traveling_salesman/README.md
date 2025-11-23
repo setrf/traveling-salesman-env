@@ -19,7 +19,7 @@ Single-turn TSP routing environment for verifiers / Prime-RL. Each example is a 
 
 ### Output format
 - Return a tour as space-separated city indices, starting/ending at city 0 (e.g., `0 2 3 1 0`).
-- No extra text or units; only the sequence.
+- No extra text or units; only the sequence (one line).
 - The parser enforces:
   - Starts/ends at start city (0)
   - Visits every city exactly once
@@ -39,6 +39,12 @@ uv run vf-eval traveling-salesman \
   -n 20 -r 3 \
   -a '{"train_examples": 64, "eval_examples": 32, "min_cities": 4, "max_cities": 7, "seed": 42}'
 ```
+
+Sampling defaults baked into rollout:
+- `response_format={"type": "text"}`
+- `temperature=0`
+- `max_tokens=128`
+- Parser will use the first line containing numbers; invalid/empty outputs get -1.
 
 ### Environment arguments
 

@@ -84,7 +84,15 @@ def format_question(instance: TSPInstance) -> str:
 
 def parse_route_from_text(text: str, num_cities: int, start_city: int) -> Tuple[List[int], Dict[str, Any]]:
     """Extract a route from a model completion."""
-    numbers = [int(x) for x in re.findall(r"-?[0-9]+", text)]
+    # Prefer the first line containing at least two integers; fall back to the whole text.
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    candidate_text = text
+    for ln in lines:
+        if len(re.findall(r"-?[0-9]+", ln)) >= 2:
+            candidate_text = ln
+            break
+
+    numbers = [int(x) for x in re.findall(r"-?[0-9]+", candidate_text)]
     details: Dict[str, Any] = {"raw_numbers": numbers}
 
     if not numbers:
@@ -135,8 +143,9 @@ class TravelingSalesmanEnv(Environment):
         eval_rows = [self._make_row(rng, cfg) for _ in range(cfg["eval_examples"])]
 
         system_prompt = (
-            "You are a routing expert that outputs only valid TSP tours as space-separated city indices.\n"
-            "Do not include explanations or units."
+            "You are a routing expert. Respond with exactly one line of space-separated city indices, "
+            "starting and ending at city 0 (e.g., 0 2 3 1 0). Do not include any other text, punctuation, "
+            "or lines."
         )
         parser = Parser()
         rubric = Rubric(funcs=[self.score_route], parser=parser)
@@ -179,14 +188,20 @@ class TravelingSalesmanEnv(Environment):
         model: str,
         sampling_args: SamplingArgs | None = None,
     ) -> State:
-        state = await self.init_state(input, client, model, sampling_args)
+        # Ensure we always ask for plain text responses and small outputs to discourage chatter.
+        merged_sampling: Dict[str, Any] = dict(sampling_args or {})
+        merged_sampling.setdefault("response_format", {"type": "text"})
+        merged_sampling.setdefault("max_tokens", 128)
+        merged_sampling.setdefault("temperature", 0)
+
+        state = await self.init_state(input, client, model, merged_sampling)
         prompt = state["prompt"]
         response = await self.get_model_response(
             client=client,
             model=model,
             prompt=prompt,
             oai_tools=None,
-            sampling_args=sampling_args,
+            sampling_args=merged_sampling,
             message_type=self.message_type,
         )
 
