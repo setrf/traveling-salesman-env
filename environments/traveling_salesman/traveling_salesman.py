@@ -164,8 +164,9 @@ class TravelingSalesmanEnv(Environment):
         cfg = {
             "train_examples": int(self.env_args.get("train_examples", 48)),
             "eval_examples": int(self.env_args.get("eval_examples", 16)),
-            "min_cities": int(self.env_args.get("min_cities", 4)),
-            "max_cities": int(self.env_args.get("max_cities", 7)),
+            # Harder defaults: push city count up so tours are longer/non-trivial
+            "min_cities": int(self.env_args.get("min_cities", 8)),
+            "max_cities": int(self.env_args.get("max_cities", 10)),
             "seed": int(self.env_args.get("seed", 13)),
         }
         rng = random.Random(cfg["seed"])
@@ -176,7 +177,7 @@ class TravelingSalesmanEnv(Environment):
         system_prompt = (
             "You are a routing expert. Respond with exactly one line of space-separated city indices, "
             "starting and ending at city 0 (e.g., 0 2 3 1 0). Do not include any other text, punctuation, "
-            "or lines."
+            "or lines. Do NOT call tools or functions; return plain text only."
         )
         parser = Parser()
         rubric = Rubric(funcs=[self.score_route], parser=parser)
