@@ -166,7 +166,7 @@ class TravelingSalesmanEnv(Environment):
             "train_examples": int(self.env_args.get("train_examples", 48)),
             "eval_examples": int(self.env_args.get("eval_examples", 16)),
             # Harder defaults: push city count up so tours are longer/non-trivial
-            "min_cities": int(self.env_args.get("min_cities", 9)),
+            "min_cities": int(self.env_args.get("min_cities", 10)),
             "max_cities": int(self.env_args.get("max_cities", 10)),
             "seed": int(self.env_args.get("seed", 13)),
         }
