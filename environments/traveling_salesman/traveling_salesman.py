@@ -85,6 +85,7 @@ def format_question(instance: TSPInstance) -> str:
 def parse_route_from_text(text: str, num_cities: int, start_city: int) -> Tuple[List[int], Dict[str, Any]]:
     """Extract a route from a model completion."""
     # Prefer the first line containing at least two integers; fall back to the whole text.
+    # This is intentionally lenient to avoid format penalties.
     lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
     candidate_text = text
     for ln in lines:
@@ -93,7 +94,7 @@ def parse_route_from_text(text: str, num_cities: int, start_city: int) -> Tuple[
             break
 
     numbers = [int(x) for x in re.findall(r"-?[0-9]+", candidate_text)]
-    details: Dict[str, Any] = {"raw_numbers": numbers}
+    details: Dict[str, Any] = {"raw_numbers": numbers, "candidate_text": candidate_text}
 
     if not numbers:
         details.update({"feasible": False, "reason": "no_numbers"})
@@ -262,6 +263,9 @@ class TravelingSalesmanEnv(Environment):
         state["completion"] = completion_text
         state["answer"] = input.get("answer", "")
         state["info"] = input.get("info", {})
+        # Diagnostics for analysis/leaderboards
+        state["info"]["completion_len_chars"] = len(completion_text)
+        state["info"]["completion_lines"] = len([ln for ln in completion_text.splitlines() if ln.strip()])
         state["stop_condition"] = None
         return state
 
@@ -275,9 +279,10 @@ class TravelingSalesmanEnv(Environment):
         route, details = parse_route_from_text(completion, num_cities, start_city)
         feasible = details.get("feasible", False)
         if not feasible or not distance_matrix or len(route) < 2:
-            state["metrics"] = {"tsp_reward": -1.0, "feasible": 0.0}
-            state["reward"] = -1.0
-            return -1.0
+            state["metrics"] = {"tsp_reward": 0.0, "feasible": 0.0, "reason": details.get("reason", "invalid")}
+            state["reward"] = 0.0
+            state["info"]["route_details"] = details
+            return 0.0
 
         length = route_distance(distance_matrix, route)
         # reward: normalized inverse length (1.0 = optimal, approaches 0 as it gets worse)
