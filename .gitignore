@@ -7,3 +7,10 @@ dist/
 *.tar.gz
 *.whl
 uv.lock
+# Eval/output artifacts (keep placeholder files)
+outputs/*
+!outputs/.gitkeep
+!outputs/README.md
+environments/traveling_salesman/outputs/*
+!environments/traveling_salesman/outputs/.gitkeep
+!environments/traveling_salesman/outputs/README.md

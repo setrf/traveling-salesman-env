@@ -127,6 +127,37 @@ def parse_route_from_text(text: str, num_cities: int, start_city: int) -> Tuple[
     return route, details
 
 
+def _coerce_message_to_text(message: Any) -> str:
+    """
+    OpenAI 4o/5.* models may return message.content as a list of parts.
+    This helper extracts any text fields and joins them.
+    """
+    content = getattr(message, "content", "") or ""
+
+    if isinstance(content, str):
+        return content
+
+    if isinstance(content, list):
+        parts: List[str] = []
+        for part in content:
+            # part can be dict-like or object with .text/.value
+            if isinstance(part, str):
+                parts.append(part)
+                continue
+            if isinstance(part, dict):
+                text_val = part.get("text") or part.get("value") or ""
+            else:
+                text_val = getattr(part, "text", None) or getattr(part, "value", None) or ""
+            if text_val:
+                parts.append(str(text_val))
+        return "\n".join(parts)
+
+    try:
+        return str(content)
+    except Exception:
+        return ""
+
+
 class TravelingSalesmanEnv(Environment):
     def __init__(self, env_id: str = "traveling-salesman", env_args: Dict[str, Any] | None = None):
         self.env_args = env_args or {}
@@ -188,11 +219,20 @@ class TravelingSalesmanEnv(Environment):
         model: str,
         sampling_args: SamplingArgs | None = None,
     ) -> State:
-        # Ensure we always ask for plain text responses and small outputs to discourage chatter.
+        # Ensure we always ask for compact text responses to discourage chatter.
         merged_sampling: Dict[str, Any] = dict(sampling_args or {})
-        merged_sampling.setdefault("response_format", {"type": "text"})
         merged_sampling.setdefault("max_tokens", 128)
         merged_sampling.setdefault("temperature", 0)
+
+        # Some newer OpenAI models (gpt-5.*) return list-based content and can be touchy
+        # about forced response_format. Relax that but keep using max_tokens to stay
+        # compatible with inference gateways that don't accept max_output_tokens.
+        model_lower = model.lower()
+        if model_lower.startswith("openai/gpt-5") or model_lower.startswith("gpt-5"):
+            merged_sampling.pop("response_format", None)
+            merged_sampling.pop("max_output_tokens", None)
+        else:
+            merged_sampling.setdefault("response_format", {"type": "text"})
 
         state = await self.init_state(input, client, model, merged_sampling)
         prompt = state["prompt"]
@@ -207,7 +247,7 @@ class TravelingSalesmanEnv(Environment):
 
         completion_text: str
         if self.message_type == "chat":
-            completion_text = response.choices[0].message.content or ""
+            completion_text = _coerce_message_to_text(response.choices[0].message)
             assistant_msg: ChatMessage = {"role": "assistant", "content": completion_text}
             state["trajectory"].append(
                 {"prompt": prompt, "completion": [assistant_msg], "reward": None, "advantage": None}

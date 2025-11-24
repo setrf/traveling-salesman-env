@@ -7,6 +7,7 @@ Turnkey verifiers/Prime-RL environment for the Traveling Salesman Problem (TSP).
 - `environments/traveling_salesman/traveling_salesman.py` — environment implementation (dataset synth, prompt, rollout, scoring)
 - `environments/traveling_salesman/README.md` — environment-level docs (args, metrics, quickstart)
 - `.gitignore` — Python/build ignores (we avoid committing eval outputs)
+- `outputs/` — not tracked; local eval artifacts only (do not commit)
 
 ## Local setup
 ```bash
@@ -64,6 +65,14 @@ After push:
 2) Run inference + orchestrator + trainer pointed at `traveling-salesman`.
 3) Start with a small model (e.g., 7B–8B) and short rollouts; reward is `optimal_distance / tour_distance` (1.0 optimal, 0 for invalid, -1 for infeasible parsing).
 4) Override env args for more/less cities or larger eval sets. Longer tours increase reasoning difficulty.
+
+## OpenAI model notes (as of 0.1.7)
+- Env now unwraps list-based `message.content` and relaxes sampling args for `openai/gpt-5*` (drops forced `response_format=text`, adds `max_output_tokens` fallback), which resolves prior empty-content/404 issues seen on TSP prompts.
+- If a provider still returns a 404 for `gpt-5.1*`, try rerunning with `-S '{"max_output_tokens":128}'` to mirror the baked defaults and confirm the SKU is enabled in your account.
+- Other models (e.g., `qwen/qwen3-coder`, `google/gemini-3-pro-preview`, `anthropic/claude-sonnet-4.5`) respond; keep using them if OpenAI SKUs are rate-limited or unavailable.
+
+## Recent evals (harder config: 6–9 cities, 96/48 splits, 48×3 rollouts)
+- `qwen/qwen3-coder`: avg reward ~0.919. Results saved locally under `outputs/evals/setrf/traveling-salesman--qwen--qwen3-coder/79375a1a` (not tracked).
 
 ## GitHub publishing
 After the first commit (already staged below), push to a new public repo:

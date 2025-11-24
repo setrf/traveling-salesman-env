@@ -45,6 +45,7 @@ Sampling defaults baked into rollout:
 - `temperature=0`
 - `max_tokens=128`
 - Parser will use the first line containing numbers; invalid/empty outputs get -1.
+- You can add `-S '{"stop":["\\n",".",","]}'` to vf-eval to further trim verbosity if a model is chatty.
 
 ### Environment arguments
 
