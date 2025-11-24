@@ -84,48 +84,88 @@ def format_question(instance: TSPInstance) -> str:
 
 def parse_route_from_text(text: str, num_cities: int, start_city: int) -> Tuple[List[int], Dict[str, Any]]:
     """Extract a route from a model completion."""
-    # Prefer the first line containing at least two integers; fall back to the whole text.
-    # This is intentionally lenient to avoid format penalties.
+    # Prefer the best line containing integers; fall back to a sliding window over all numbers.
+    # This is intentionally lenient to avoid format penalties while salvaging a usable route from verbose text.
     lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
-    candidate_text = text
+    all_numbers = [int(x) for x in re.findall(r"-?[0-9]+", text)]
+
+    def score_line(nums: List[int]) -> int:
+        # higher is better: complete coverage, correct length, starts/ends at start
+        if not nums:
+            return -1
+        score = 0
+        if nums[0] == start_city:
+            score += 2
+        if nums[-1] == start_city:
+            score += 2
+        score += min(len(set(nums)), num_cities)
+        if len(nums) == num_cities + 1:
+            score += 2
+        return score
+
+    best_line_nums: List[int] = []
+    best_score = -1
     for ln in lines:
-        if len(re.findall(r"-?[0-9]+", ln)) >= 2:
-            candidate_text = ln
-            break
+        nums = [int(x) for x in re.findall(r"-?[0-9]+", ln)]
+        if len(nums) < 2:
+            continue
+        s = score_line(nums)
+        if s > best_score:
+            best_score = s
+            best_line_nums = nums
 
-    numbers = [int(x) for x in re.findall(r"-?[0-9]+", candidate_text)]
-    details: Dict[str, Any] = {"raw_numbers": numbers, "candidate_text": candidate_text}
+    candidate_nums = best_line_nums if best_score >= 0 else all_numbers
+    details: Dict[str, Any] = {"raw_numbers": candidate_nums, "all_numbers": all_numbers}
 
-    if not numbers:
+    if not candidate_nums:
         details.update({"feasible": False, "reason": "no_numbers"})
         return [], details
 
-    route = numbers
-    # ensure start/end at start_city
-    if route[0] != start_city:
-        route = [start_city] + route
-    if route[-1] != start_city:
-        route = route + [start_city]
+    # Try to build a route from candidate numbers; if that fails, slide over all numbers.
+    def try_build(nums: List[int]) -> Tuple[List[int], Dict[str, Any]]:
+        if not nums:
+            return [], {"feasible": False, "reason": "no_numbers"}
 
-    # remove consecutive duplicates
-    dedup_route = [route[0]]
-    for node in route[1:]:
-        if node != dedup_route[-1]:
-            dedup_route.append(node)
-    route = dedup_route
+        route = list(nums)
+        if route[0] != start_city:
+            route = [start_city] + route
+        if route[-1] != start_city:
+            route = route + [start_city]
 
-    inner = route[1:-1]
-    unique_inner = set(inner)
-    if len(route) != num_cities + 1 or len(unique_inner) != num_cities - 1:
-        details.update({"feasible": False, "reason": "invalid_coverage", "route": route})
+        dedup_route = [route[0]]
+        for node in route[1:]:
+            if node != dedup_route[-1]:
+                dedup_route.append(node)
+        route = dedup_route
+
+        inner = route[1:-1]
+        unique_inner = set(inner)
+        if len(route) != num_cities + 1 or len(unique_inner) != num_cities - 1:
+            return route, {"feasible": False, "reason": "invalid_coverage", "route": route}
+        if any(node < 0 or node >= num_cities for node in inner):
+            return route, {"feasible": False, "reason": "out_of_range", "route": route}
+        return route, {"feasible": True, "route": route}
+
+    route, info = try_build(candidate_nums)
+    if info.get("feasible"):
+        details.update(info)
         return route, details
 
-    if any(node < 0 or node >= num_cities for node in inner):
-        details.update({"feasible": False, "reason": "out_of_range", "route": route})
-        return route, details
+    # Fallback: slide window over all numbers to find a plausible tour length n+1
+    n_needed = num_cities + 1
+    best_route: List[int] = []
+    for i in range(0, max(0, len(all_numbers) - n_needed + 1)):
+        window = all_numbers[i : i + n_needed]
+        r, inf = try_build(window)
+        if inf.get("feasible"):
+            details.update(inf)
+            return r, details
+        # keep the first near-feasible window as best guess
+        if not best_route:
+            best_route, best_info = r, inf
 
-    details.update({"feasible": True, "route": route})
-    return route, details
+    details.update(best_info if 'best_info' in locals() else {"feasible": False, "reason": "invalid_coverage", "route": route})
+    return best_route, details
 
 
 def _coerce_message_to_text(message: Any) -> str:
