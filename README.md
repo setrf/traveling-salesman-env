@@ -1,6 +1,6 @@
 # Traveling Salesman Prime-RL Environment
 
-Turnkey verifiers/Prime-RL environment for the Traveling Salesman Problem (TSP). It ships a synthetic dataset of small TSP instances (4–7 cities) with ground-truth optimal tours and a rubric that scores model output as a normalized tour-length ratio.
+Turnkey verifiers/Prime-RL environment for the Traveling Salesman Problem (TSP). It ships a synthetic dataset of medium TSP instances (default 10 cities) with ground-truth optimal tours and a rubric that scores model output as a normalized tour-length ratio.
 
 ## Repository layout
 - `environments/traveling_salesman/pyproject.toml` — environment metadata (name, version, tags, deps)
@@ -40,13 +40,13 @@ Customize model/sampling and env args:
 uv run vf-eval traveling-salesman \
   -m gpt-4o-mini \
   -n 20 -r 3 \
-  -a '{"train_examples":64,"eval_examples":32,"min_cities":4,"max_cities":7,"seed":42}'
+  -a '{"train_examples":64,"eval_examples":32,"min_cities":10,"max_cities":10,"seed":42}'
 ```
 
 Strict output contract:
-- System prompt enforces: single line of space-separated city indices, start/end at 0, no extra text.
-- Rollout defaults: `response_format={"type": "text"}`, `temperature=0`, `max_tokens=128`.
-- Parser extracts the first numeric line; invalid/empty outputs score -1.
+- System prompt enforces: single line of space-separated city indices, start/end at 0, no extra text or tools.
+- Rollout defaults: `temperature=0`, `max_tokens=128`.
+- Parser picks the best numeric line (or sliding window) and scores invalid/empty outputs as 0 (not -1).
 
 ## Publish to Prime Intellect Environments Hub
 From `environments/traveling_salesman/`:
@@ -67,11 +67,23 @@ After push:
 4) Override env args for more/less cities or larger eval sets. Longer tours increase reasoning difficulty.
 
 ## Model notes (as of 0.2.1)
-- Default difficulty uses 10-city graphs. Parser is lenient: it salvages the best numeric line (or sliding window) and scores invalids as 0 (no -1 format penalties).
-- OpenAI gpt-5.1 SKUs remain unavailable on Prime Inference (provider returns 404/not_found). Other models (qwen3-coder, gemini-3-pro-preview, grok-4, glm-4.6, kimi-k2-0905, claude-sonnet-4.5, llama-4-maverick) work; use them for evals.
+- Default difficulty uses 10-city graphs. Parser is lenient: it salvages the best numeric line (or sliding window) and scores invalids as 0.
+- OpenAI gpt-5.1 SKUs remain unavailable on Prime Inference (404/not_found). Working models we’ve recently evaluated:  
+  - gemini-3-pro-preview: 1.000 (4 ex)  
+  - grok-4: 0.982 (4 ex)  
+  - qwen3-coder: 0.900 (24 ex)  
+  - kimi-k2-0905: 0.921 (3 ex)  
+  - claude-sonnet-4.5: 0.977 (8 ex)  
+  - llama-4-maverick: ~0.90 (earlier run)  
+  - glm-4.6: new hard run pending; earlier small run completed.
 
-## Recent evals (harder config: 6–9 cities, 96/48 splits, 48×3 rollouts)
-- `qwen/qwen3-coder`: avg reward ~0.919. Results saved locally under `outputs/evals/setrf/traveling-salesman--qwen--qwen3-coder/79375a1a` (not tracked).
+## Recent evals (hard config, 10-city graphs)
+- `google/gemini-3-pro-preview`: ID `j036cfk189dd7x2i7nhgm9rd` (4×1, avg 1.000)
+- `x-ai/grok-4`: ID `tkhe95pulevisebiexea5ozs` (4×1, avg 0.982)
+- `qwen/qwen3-coder`: ID `tqszrvj97gdx6h36cpn8d52i` (24×1, avg 0.900)
+- `kimi-k2-0905`: ID `q6j4agm8zar1wd9oo86kolmp` (3×1, avg 0.921)
+- `claude-sonnet-4.5`: ID `iwel728n21yuoxmqy1l9nka4` (8×1, avg 0.977)
+- `glm-4.6`: new 6-sample hard run pending (earlier small run ID `vdzio6ha9e3h87vgwtiya4wz`).
 
 ## GitHub publishing
 After the first commit (already staged below), push to a new public repo:

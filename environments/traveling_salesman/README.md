@@ -1,6 +1,6 @@
 # traveling-salesman
 
-Single-turn TSP routing environment for verifiers / Prime-RL. Each example is a small TSP instance (4–7 cities) specified by coordinates. The agent must return a tour as space-separated city indices starting/ending at city 0. Reward is `optimal_distance / tour_distance` (1.0 = optimal, 0 for invalid).
+Single-turn TSP routing environment for verifiers / Prime-RL. Each example is a medium TSP instance (default 10 cities) specified by coordinates. The agent must return a tour as space-separated city indices starting/ending at city 0. Reward is `optimal_distance / tour_distance` (1.0 = optimal, 0 for invalid).
 
 ### Overview
 - **Environment ID**: `traveling-salesman`
@@ -37,14 +37,13 @@ Change model/sampling and override env args:
 uv run vf-eval traveling-salesman \
   -m gpt-4o-mini \
   -n 20 -r 3 \
-  -a '{"train_examples": 64, "eval_examples": 32, "min_cities": 4, "max_cities": 7, "seed": 42}'
+  -a '{"train_examples": 64, "eval_examples": 32, "min_cities": 10, "max_cities": 10, "seed": 42}'
 ```
 
 Sampling defaults baked into rollout:
-- `response_format={"type": "text"}`
 - `temperature=0`
 - `max_tokens=128`
-- Parser will use the first line containing numbers; invalid/empty outputs get -1.
+- Parser picks the best numeric line (or a sliding numeric window) and salvages routes; invalid/empty outputs score 0 (not -1).
 - You can add `-S '{"stop":["\\n",".",","]}'` to vf-eval to further trim verbosity if a model is chatty.
 
 ### Environment arguments
@@ -53,8 +52,8 @@ Sampling defaults baked into rollout:
 | --- | ---- | ------- | ----------- |
 | `train_examples` | int | `48` | Synthetic train rows to generate |
 | `eval_examples` | int | `16` | Synthetic eval rows to generate |
-| `min_cities` | int | `4` | Minimum cities per instance |
-| `max_cities` | int | `7` | Maximum cities per instance |
+| `min_cities` | int | `10` | Minimum cities per instance |
+| `max_cities` | int | `10` | Maximum cities per instance |
 | `seed` | int | `13` | RNG seed for reproducible instances |
 
 ### Metrics
@@ -68,7 +67,7 @@ Sampling defaults baked into rollout:
 | `feasible` | 1 if the tour is valid/visits all cities once; else 0 |
 
 ### Notes on scoring
-- Invalid or malformed routes get `tsp_reward = -1.0`.
+- Invalid or malformed routes get `tsp_reward = 0.0`.
 - Feasible but suboptimal routes get a fractional reward: `optimal_distance / tour_distance` (clipped to [0,1]).
 - Optimal route yields `tsp_reward = 1.0`.
 
